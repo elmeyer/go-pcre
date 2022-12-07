@@ -2,5 +2,5 @@
 
 package pcre
 
-// #cgo LDFLAGS: ${SRCDIR}/libpcre_linux_armhf.a
+// #cgo LDFLAGS: ${SRCDIR}/libpcre_linux_arm.a
 import "C"
