@@ -326,7 +326,7 @@ func (m *Matcher) Init(re *Regexp) {
 	}
 	m.matches = false
 	m.err = nil
-	if m.re.ptr != nil && m.re.ptr == re.ptr {
+	if m.re != nil && m.re.ptr != nil && m.re.ptr == re.ptr {
 		// Skip group count extraction if the matcher has
 		// already been initialized with the same regular
 		// expression.
