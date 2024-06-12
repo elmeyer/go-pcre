@@ -354,7 +354,7 @@ func (m *Matcher) Match(subject []byte, flags int) bool {
 	if m.err != nil {
 		return false
 	}
-	if m.re.ptr == nil {
+	if m.re == nil || m.re.ptr == nil {
 		panic("Matcher.Match: uninitialized")
 	}
 	rc := m.Exec(subject, flags)
@@ -370,7 +370,7 @@ func (m *Matcher) MatchString(subject string, flags int) bool {
 	if m.err != nil {
 		return false
 	}
-	if m.re.ptr == nil {
+	if m.re == nil || m.re.ptr == nil {
 		panic("Matcher.MatchString: uninitialized")
 	}
 	rc := m.ExecString(subject, flags)
@@ -382,7 +382,7 @@ func (m *Matcher) MatchString(subject string, flags int) bool {
 // Exec tries to match the specified byte slice to
 // the current pattern. Returns the raw pcre_exec error code.
 func (m *Matcher) Exec(subject []byte, flags int) int {
-	if m.re.ptr == nil {
+	if m.re == nil || m.re.ptr == nil {
 		panic("Matcher.Exec: uninitialized")
 	}
 	length := len(subject)
@@ -398,7 +398,7 @@ func (m *Matcher) Exec(subject []byte, flags int) int {
 // ExecString tries to match the specified subject string to
 // the current pattern. It returns the raw pcre_exec error code.
 func (m *Matcher) ExecString(subject string, flags int) int {
-	if m.re.ptr == nil {
+	if m.re == nil || m.re.ptr == nil {
 		panic("Matcher.ExecString: uninitialized")
 	}
 	length := len(subject)
@@ -556,7 +556,7 @@ func (m *Matcher) Index() (loc []int) {
 
 // name2index converts a group name to its group index number.
 func (m *Matcher) name2index(name string) (int, error) {
-	if m.re.ptr == nil {
+	if m.re == nil || m.re.ptr == nil {
 		return 0, fmt.Errorf("Matcher.Named: uninitialized")
 	}
 	name1 := C.CString(name)
