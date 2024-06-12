@@ -64,6 +64,7 @@ import "C"
 import (
 	"errors"
 	"fmt"
+	"runtime"
 	"strconv"
 	"unsafe"
 )
@@ -171,48 +172,52 @@ func (re *Regexp) FreeRegexp() {
 		C.pcre_free_study(re.extra)
 		re.extra = nil
 	}
+	runtime.SetFinalizer(re, nil)
 }
 
 // Compile the pattern and return a compiled regexp.
 // If compilation fails, the second return value holds a *CompileError.
-func Compile(pattern string, flags int) (Regexp, error) {
-	re := Regexp{}
+func Compile(pattern string, flags int) (re *Regexp, err error) {
 	pattern1 := C.CString(pattern)
 	defer C.free(unsafe.Pointer(pattern1))
 	if clen := int(C.strlen(pattern1)); clen != len(pattern) {
-		return Regexp{}, &CompileError{
+		err = &CompileError{
 			Pattern: pattern,
 			Message: "NUL byte in pattern",
 			Offset:  clen,
 		}
+		return
 	}
 	var errptr *C.char
 	var erroffset C.int
+	re = &Regexp{}
 	re.ptr = C.pcre_compile(pattern1, C.int(flags), &errptr, &erroffset, nil)
 	if re.ptr == nil {
-		return Regexp{}, &CompileError{
+		err = &CompileError{
 			Pattern: pattern,
 			Message: C.GoString(errptr),
 			Offset:  int(erroffset),
 		}
+		return
 	}
-	return re, nil
+	runtime.SetFinalizer(re, (*Regexp).FreeRegexp)
+	return
 }
 
 // CompileJIT is a combination of Compile and Study. It first compiles
 // the pattern and if this succeeds calls Study on the compiled pattern.
 // comFlags are Compile flags, jitFlags are study flags.
 // If compilation fails, the second return value holds a *CompileError.
-func CompileJIT(pattern string, comFlags, jitFlags int) (Regexp, error) {
+func CompileJIT(pattern string, comFlags, jitFlags int) (*Regexp, error) {
 	re, err := Compile(pattern, comFlags)
 	if err == nil {
-		err = (&re).Study(jitFlags)
+		err = re.Study(jitFlags)
 	}
 	return re, err
 }
 
 // MustCompile compiles the pattern.  If compilation fails, panic.
-func MustCompile(pattern string, flags int) (re Regexp) {
+func MustCompile(pattern string, flags int) (re *Regexp) {
 	re, err := Compile(pattern, flags)
 	if err != nil {
 		panic(err)
@@ -221,7 +226,7 @@ func MustCompile(pattern string, flags int) (re Regexp) {
 }
 
 // MustCompileJIT compiles and studies the pattern.  On failure it panics.
-func MustCompileJIT(pattern string, comFlags, jitFlags int) (re Regexp) {
+func MustCompileJIT(pattern string, comFlags, jitFlags int) (re *Regexp) {
 	re, err := CompileJIT(pattern, comFlags, jitFlags)
 	if err != nil {
 		panic(err)
@@ -253,18 +258,19 @@ func (re *Regexp) Study(flags int) error {
 }
 
 // Groups returns the number of capture groups in the compiled pattern.
-func (re Regexp) Groups() int {
+func (re *Regexp) Groups() int {
 	if re.ptr == nil {
 		panic("Regexp.Groups: uninitialized")
 	}
-	return int(pcreGroups(re.ptr))
+	out := int(pcreGroups(re.ptr))
+	return out
 }
 
 // Matcher objects provide a place for storing match results.
 // They can be created by the Matcher and MatcherString functions,
 // or they can be initialized with Reset or ResetString.
 type Matcher struct {
-	re       Regexp
+	re       *Regexp
 	groups   int
 	ovector  []C.int // scratch space for capture offsets
 	matches  bool    // last match was successful
@@ -275,15 +281,15 @@ type Matcher struct {
 }
 
 // NewMatcher creates a new matcher object for the given Regexp.
-func (re Regexp) NewMatcher() (m *Matcher) {
+func (re *Regexp) NewMatcher() (m *Matcher) {
 	m = new(Matcher)
-	m.Init(&re)
+	m.Init(re)
 	return
 }
 
 // Matcher creates a new matcher object, with the byte slice as subject.
 // It also starts a first match on subject. Test for success with Matches().
-func (re Regexp) Matcher(subject []byte, flags int) (m *Matcher) {
+func (re *Regexp) Matcher(subject []byte, flags int) (m *Matcher) {
 	m = re.NewMatcher()
 	m.Match(subject, flags)
 	return
@@ -291,25 +297,26 @@ func (re Regexp) Matcher(subject []byte, flags int) (m *Matcher) {
 
 // MatcherString creates a new matcher, with the specified subject string.
 // It also starts a first match on subject. Test for success with Matches().
-func (re Regexp) MatcherString(subject string, flags int) (m *Matcher) {
+func (re *Regexp) MatcherString(subject string, flags int) (m *Matcher) {
 	m = re.NewMatcher()
 	m.MatchString(subject, flags)
 	return
-
 }
 
 // Reset switches the matcher object to the specified regexp and subject.
 // It also starts a first match on subject.
-func (m *Matcher) Reset(re Regexp, subject []byte, flags int) bool {
-	m.Init(&re)
-	return m.Match(subject, flags)
+func (m *Matcher) Reset(re *Regexp, subject []byte, flags int) bool {
+	m.Init(re)
+	out := m.Match(subject, flags)
+	return out
 }
 
 // ResetString switches the matcher object to the given regexp and subject.
 // It also starts a first match on subject.
-func (m *Matcher) ResetString(re Regexp, subject string, flags int) bool {
-	m.Init(&re)
-	return m.MatchString(subject, flags)
+func (m *Matcher) ResetString(re *Regexp, subject string, flags int) bool {
+	m.Init(re)
+	out := m.MatchString(subject, flags)
+	return out
 }
 
 // Init binds an existing Matcher object to the given Regexp.
@@ -325,7 +332,7 @@ func (m *Matcher) Init(re *Regexp) {
 		// expression.
 		return
 	}
-	m.re = *re
+	m.re = re
 	m.groups = re.Groups()
 	if ovectorlen := 3 * (1 + m.groups); len(m.ovector) < ovectorlen {
 		m.ovector = make([]C.int, ovectorlen)
@@ -606,7 +613,7 @@ func (re *Regexp) FindIndex(bytes []byte, flags int) (loc []int) {
 
 // ReplaceAll returns a copy of a byte slice
 // where all pattern matches are replaced by repl.
-func (re Regexp) ReplaceAll(bytes, repl []byte, flags int) ([]byte, error) {
+func (re *Regexp) ReplaceAll(bytes, repl []byte, flags int) ([]byte, error) {
 	m := re.Matcher(bytes, flags)
 	r := []byte{}
 	for m.matches {
@@ -618,7 +625,7 @@ func (re Regexp) ReplaceAll(bytes, repl []byte, flags int) ([]byte, error) {
 }
 
 // ReplaceAllString is equivalent to ReplaceAll with string return type.
-func (re Regexp) ReplaceAllString(in, repl string, flags int) (string, error) {
+func (re *Regexp) ReplaceAllString(in, repl string, flags int) (string, error) {
 	str, err := re.ReplaceAll([]byte(in), []byte(repl), flags)
 	return string(str), err
 }
@@ -630,7 +637,7 @@ type Match struct {
 }
 
 // FindAll finds all instances that match the regex.
-func (re Regexp) FindAll(subject string, flags int) ([]Match, error) {
+func (re *Regexp) FindAll(subject string, flags int) ([]Match, error) {
 	matches := make([]Match, 0)
 	m := re.MatcherString(subject, flags)
 	offset := 0
